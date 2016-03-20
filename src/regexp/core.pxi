@@ -160,8 +160,10 @@
     (let [[expr] (:expr x)]
       (if (integer? to)
         (let [range (- to from)
-              [j c] (reduce (flip compile-expr) i (repeat expr from))
-              [k d] (reduce (flip compile-optional) j (repeat expr range))]
+              [j c] (if (zero? from)
+                      (let [j (inc i)] [j {i #{j}}])
+                      (reduce (flip compile-expr) i (repeat from expr)))
+              [k d] (reduce (flip compile-optional) j (repeat range expr))]
           [k (merge c d)])
         (case from
           0 (compile-kleene-star expr i)
@@ -461,6 +463,8 @@
 
 (defn matches? [re s]
   (= :match (first (re-groups re s))))
+
+;; (re-groups "^(\\w+)://([\\w\\.]+)(:)?" "http://localhost.test:8888/thing/for?x=2#thing")
 
 ;; Local Variables:
 ;; eval: (define-clojure-indent (defexpr '(2 nil nil (1))))
