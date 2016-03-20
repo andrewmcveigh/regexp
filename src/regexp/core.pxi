@@ -402,7 +402,6 @@
     (if-let [head (nfa state)]
       (let [match? (= head :match)
             epsilon-edges (filter (comp epsilon? key) head)]
-        (prn state input groups head)
         (cond match?;; (>= pos length) not looking for end of string anymore
               [(->State :match groups)]
               ;; match?
