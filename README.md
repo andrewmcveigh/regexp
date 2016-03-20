@@ -2,6 +2,15 @@
 
 A regular expression library for Pixie.
 
+## Status
+
+The status of this project is pre-alpha. There's not much of an API
+yet, it's not fully working, and it's barely usable.
+
+## TODO
+
+ * Default greedyness on repeat expressions
+
 ## License
 
 Copyright © 2016 Andrew Mcveigh.
