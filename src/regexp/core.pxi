@@ -167,12 +167,20 @@
           0 (compile-kleene-star expr i)
           1 (compile-kleene-plus expr i))))))
 
+(defn bracket-edge [negate? j f]
+  (if (instance? Escape f)
+    (let [f (:f f)]
+      [(edge f (cond-> f negate? complement)) j])
+    [(edge f (comp (cond-> f negate? complement) char-at)) j]))
+
 (defexpr Bracket [negate?]
   INfa
   (-compile [x i]
-    (let [f (first (:expr x))
-          j (inc i)]
-      [j {i {(edge f (comp (cond-> f negate? complement) char-at)) j}}])))
+    (let [j (inc i)
+          edges (->> (:expr x)
+                     (map (partial bracket-edge negate? j))
+                     (into {}))]
+      [j {i edges}])))
 
 (defexpr Choice []
   INfa
@@ -213,31 +221,44 @@
    state])
 
 (def escape-chars
-  {\t (edge "\\tab" (comp tab? char-at))
-   \r (edge "\\return" (comp return? char-at))
-   \n (edge "\\newline" (comp newline? char-at))
-   \f (edge "\\formfeed" (comp formfeed? char-at))
-   \s (edge "\\s" (comp whitespace? char-at))
-   \S (edge "\\S" (comp (complement whitespace?) char-at))
-   \w (edge "\\w" (comp word? char-at))
-   \W (edge "\\W" (comp not-word? char-at))
-   \b (epsilon "\\b" boundary?)
-   \d (edge "\\d" (comp numeric? char-at))
-   \D (edge "\\D" (comp (complement numeric?) char-at))})
+  {\t (comp tab? char-at)
+   \r (comp return? char-at)
+   \n (comp newline? char-at)
+   \f (comp formfeed? char-at)
+   \s (comp whitespace? char-at)
+   \S (comp (complement whitespace?) char-at)
+   \w (comp word? char-at)
+   \W (comp not-word? char-at)
+   \d (comp numeric? char-at)
+   \D (comp (complement numeric?) char-at)
+   \b boundary?})
 
-(defrecord Escape [c edge]
+(def escape-edge
+  {\t (partial edge "\\tab")
+   \r (partial edge "\\return")
+   \n (partial edge "\\newline")
+   \f (partial edge "\\formfeed")
+   \s (partial edge "\\s")
+   \S (partial edge "\\S")
+   \w (partial edge "\\w")
+   \W (partial edge "\\W")
+   \d (partial edge "\\d")
+   \D (partial edge "\\D")
+   \b (partial epsilon "\\b")})
+
+(defrecord Escape [esc? c f]
   IObject
   (-repr [_] (str "#<\\" c ">"))
   INfa
   (-compile [x i]
     (let [j (inc i)]
-      [j {i {edge j}}])))
+      [j {i {((escape-edge c) f) j}}])))
 
 (defn escape [c]
-  (if-let [f (or (special? c) (escape-chars c))]
-    (->Escape c f)
-    (throw [::UnsupportedEscapeCharacter
-            (str c " is not a supported escape character")])))
+  (or (some->> c special? (->Escape nil c))
+      (some->> c escape-chars (->Escape true c))
+      (throw [::UnsupportedEscapeCharacter
+              (str c " is not a supported escape character")])))
 
 (defn read-while [f s]
   (loop [[c & [d :as more] :as s] s out []]
@@ -260,26 +281,26 @@
   (first (keep-indexed (fn [i y] (when (= x y) i)) coll)))
 
 (defn parse-bracket-expr [[h :as expr]]
-  (let [[out expr] (if (= \- h) [#{\-} (rest expr)] [#{} expr])]
-    (loop [[a & [b c :as more]] expr out #{}]
+  (let [[char-set expr] (if (= \- h) [#{\-} (rest expr)] [#{} expr])]
+    (loop [[a & [b c :as more]] expr char-set char-set esc []]
       (if a
-        (cond (= \\ a)
-              (if-let [escape (escape-chars b)]
-                (recur (rest more) (conj out escape))
-                (recur more (conj out b)))
+        (cond (instance? Escape a)
+              (if (:esc? a)
+                (recur more char-set (conj esc a))
+                (recur more (conj char-set (:c a)) esc))
               (and (alpha-numeric? a) (= \- b) (alpha-numeric? c))
               (if (< (index-of alpha-numeric-range a)
                      (index-of alpha-numeric-range c))
                 (let [range (->> alpha-numeric-range
                                  (drop-while (partial not= a))
                                  (take-while (partial not= c)))]
-                  (recur (drop 2 more) (apply conj out c range)))
+                  (recur (drop 2 more) (apply conj char-set c range) esc))
                 (throw [::InvalidRange (str "Range expr [" a b c "] invalid")]))
               (and b (= \- a))
               (throw [::InvalidRange (str "Range expr [" a b c "] invalid")])
               :else
-              (recur more (conj out a)))
-        out))))
+              (recur more (conj char-set a) esc))
+        (conj esc char-set)))))
 
 (defn read-bracket-expr [[expr [c :as s]]]
   (let [[t s] (if (= c \^)
@@ -402,10 +423,8 @@
     (if-let [head (nfa state)]
       (let [match? (= head :match)
             epsilon-edges (filter (comp epsilon? key) head)]
-        (cond match?;; (>= pos length) not looking for end of string anymore
+        (cond match?
               [(->State :match groups)]
-              ;; match?
-              ;; [(->State :fail groups)]
               (or (integer? head) (keyword? head)) ;; epsilon edge
               [(->State [head input] groups)]
               (set? head) ;; epsilon edges
