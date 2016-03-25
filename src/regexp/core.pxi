@@ -425,6 +425,7 @@
     (if-let [head (nfa state)]
       (let [match? (= head :match)
             epsilon-edges (filter (comp epsilon? key) head)]
+        (prn state input groups head)
         (cond match?
               [(->State :match groups)]
               (or (integer? head) (keyword? head)) ;; epsilon edge
@@ -454,8 +455,17 @@
 (defn ->state [s]
   (->State [0 s] {:pos 0 :length (count s)}))
 
+(defn prnfa [x]
+  (dotimes [k (count x)]
+    (let [v (x k)]
+      (println "(" k ")" (pr-str v)))))
+
 (defn re-groups [re s]
-  (let [result (run (compile re) (->state s))]
+  (let [r (read re)
+        _ (prn r)
+        compiled (compile r)
+        _ (prnfa compiled)
+        result (run compiled (->state s))]
     (some-> (if (satisfies? ISeqable result)
               (when (some match? result) (first result))
               (when (match? result) result))
@@ -464,7 +474,16 @@
 (defn matches? [re s]
   (= :match (first (re-groups re s))))
 
-;; (re-groups "^(\\w+)://([\\w\\.]+)(:)?" "http://localhost.test:8888/thing/for?x=2#thing")
+(comment
+
+  (re-groups "^(\\w+)://([\\w\\.]+)(:)?"
+             "http://localhost.test:8888/thing/for?x=2#thing")
+  
+  (re-groups "a(a)?" "aa")
+
+  (re-groups "(.*\\w" "    a   b)")
+
+  )
 
 ;; Local Variables:
 ;; eval: (define-clojure-indent (defexpr '(2 nil nil (1))))
